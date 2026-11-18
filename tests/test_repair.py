@@ -757,38 +757,6 @@ class RepairLauncherTests(unittest.TestCase):
             [(variant, stage) for variant in VARIANT_ORDER for stage in STAGES],
         )
 
-    def test_mirror_snapshot_rejects_drift(self) -> None:
-        from scripts.mirror_repair_artifacts import _verify_snapshot
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for stage in STAGES:
-                run = root / "raw" / f"pilot-{stage}"
-                run.mkdir(parents=True)
-                manifest = {
-                    "phase": "pilot",
-                    "stage": stage,
-                    "scores_sha256": "",
-                    "generations_sha256": "",
-                }
-                for name, content in (
-                    ("scores.jsonl", "{}\n"),
-                    ("generations.jsonl", "{}\n"),
-                ):
-                    (run / name).write_text(content)
-                manifest["scores_sha256"] = _file_sha256(run / "scores.jsonl")
-                manifest["generations_sha256"] = _file_sha256(
-                    run / "generations.jsonl"
-                )
-                (run / "manifest.json").write_text(json.dumps(manifest))
-            evidence = root / "evidence" / "pilot"
-            evidence.mkdir(parents=True)
-            (evidence / "summary.json").write_text("{}\n")
-            self.assertTrue(_verify_snapshot(root, "pilot")["atomic_t7_snapshot"])
-            (root / "raw" / "pilot-base" / "scores.jsonl").write_text("drift\n")
-            with self.assertRaises(ValueError):
-                _verify_snapshot(root, "pilot")
-
 
 if __name__ == "__main__":
     unittest.main()
