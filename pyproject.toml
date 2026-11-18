@@ -3,13 +3,18 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "frame-stage-binding"
+name = "stagewise-source-binding"
 version = "0.2.0"
+description = "Stagewise instruction source binding across Base, SFT, DPO, and RLVR checkpoints"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "datasets>=3.2",
   "huggingface-hub>=0.27",
 ]
+
+[project.urls]
+Repository = "https://github.com/rajarshighoshal/stagewise-source-binding"
 
 [project.optional-dependencies]
 gpu = [

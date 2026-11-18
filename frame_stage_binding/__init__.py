@@ -1,1 +1,1 @@
-"""Stagewise reasoning-cue source-binding experiment (mode-choice repair)."""
+"""Stagewise instruction source binding across post-training checkpoints."""
