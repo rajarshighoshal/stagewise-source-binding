@@ -1,5 +1,7 @@
 # Which Post-Training Stage Teaches a Model Whose Instructions to Obey?
 
+**Technical note:** [rajarshighoshal.github.io/stagewise-source-binding](https://rajarshighoshal.github.io/stagewise-source-binding/)
+
 Instruction-tuned language models routinely face competing directives from different channels: a user's prompt asks for a terse answer while a retrieved document or working note calls for step-by-step verification. Binding too weakly to the user channel leaves a model open to indirect prompt injection from retrieved text, whereas binding blindly can override valid task constraints in context. Comparing only a pretrained base model against a final chat checkpoint hides which post-training stage actually installs this source priority, and hides whether outcome-driven reinforcement learning (`RLVR`) reinforces or erodes user obedience when obeying the user hurts task accuracy.
 
 Here we track reasoning-mode source binding across all four released checkpoints of the `Llama-3.1-Tulu-3-8B` lineage (`Base → SFT → DPO → RLVR`) on `1,319` held-out GSM8K test problems. Direct preference optimization (`DPO`) introduces almost the entire shift toward obeying the `REQUEST` block (`ψ = −2.15`), whereas supervised fine-tuning (`SFT`) barely moves source preference (`ψ = −0.21` vs. `−0.02` at `Base`). Subsequent `RLVR` training retains strong `REQUEST` priority (`ψ = −1.68`, net Base-to-RLVR shift `Θ = −1.654`, item-paired bootstrap 95% CI `[−1.669, −1.638]`) while pulling `+0.47` logits back toward reasoning on math problems where skipping chain-of-thought costs reward.
@@ -90,6 +92,7 @@ scripts/
   build_recalibration_config.py
   render_public_figures.py
 docs/
+  index.html                   published technical note (GitHub Pages)
   experimental-notes.md        checkpoint settings, split hashes, pilot history
   figures/                     SVG figures generated from confirmation summary
 tests/

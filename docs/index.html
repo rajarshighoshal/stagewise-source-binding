@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Which Post-Training Stage Teaches a Model Whose Instructions to Obey?</title>
+  <meta name="description" content="Stagewise instruction source binding and confounded swap placebos across Base, SFT, DPO, and RLVR checkpoints in Llama-3.1-Tulu-3-8B.">
+  <meta property="og:title" content="Which Post-Training Stage Teaches a Model Whose Instructions to Obey?">
+  <meta property="og:description" content="Tracking reasoning-mode source binding across Base, SFT, DPO, and RLVR checkpoints in Llama-3.1-Tulu-3-8B on 1,319 GSM8K problems, plus an algebraic proof of why source-swap placebos self-confound.">
+  <meta property="og:type" content="article">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #fcfcfb;
+      --surface-code: #f5f4f0;
+      --ink: #0b0b0b;
+      --ink-secondary: #52514e;
+      --ink-muted: #767570;
+      --rule: #e4e3dd;
+      --rule-strong: #1e1e1c;
+      --accent: #2a78d6;
+      --figure-frame: #e4e3dd;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:where(:not([data-theme="light"])) {
+        color-scheme: dark;
+        --bg: #1a1a19;
+        --surface-code: #232321;
+        --ink: #f4f4f0;
+        --ink-secondary: #c3c2b7;
+        --ink-muted: #929187;
+        --rule: #32322f;
+        --rule-strong: #d8d7cf;
+        --accent: #5aa2f8;
+        --figure-frame: #32322f;
+      }
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #1a1a19;
+      --surface-code: #232321;
+      --ink: #f4f4f0;
+      --ink-secondary: #c3c2b7;
+      --ink-muted: #929187;
+      --rule: #32322f;
+      --rule-strong: #d8d7cf;
+      --accent: #5aa2f8;
+      --figure-frame: #32322f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+      font-size: 18px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 3.5rem 1.5rem 5rem;
+    }
+
+    header.paper-header {
+      border-bottom: 1px solid var(--rule);
+      padding-bottom: 1.75rem;
+      margin-bottom: 2rem;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.82rem;
+      color: var(--ink-muted);
+      letter-spacing: 0.02em;
+      margin-bottom: 1.25rem;
+    }
+
+    .topbar a,
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .theme-btn {
+      background: none;
+      border: 1px solid var(--rule);
+      color: var(--ink-secondary);
+      font-family: inherit;
+      font-size: 0.78rem;
+      padding: 0.22rem 0.6rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .theme-btn:hover {
+      border-color: var(--ink-muted);
+      color: var(--ink);
+    }
+
+    h1, h2, h3 {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      color: var(--ink);
+      line-height: 1.24;
+      letter-spacing: -0.015em;
+    }
+
+    h1 {
+      font-size: clamp(1.75rem, 3.6vw, 2.3rem);
+      font-weight: 700;
+      margin: 0 0 0.65rem;
+    }
+
+    .subtitle {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 1.04rem;
+      color: var(--ink-secondary);
+      margin: 0 0 1.2rem;
+      line-height: 1.45;
+    }
+
+    .byline {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.9rem;
+      color: var(--ink-secondary);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem 1.2rem;
+    }
+
+    .abstract {
+      background: var(--surface-code);
+      border-left: 3px solid var(--rule-strong);
+      padding: 1.1rem 1.35rem;
+      margin: 0 0 2.4rem;
+      font-size: 0.96rem;
+      line-height: 1.6;
+    }
+
+    .abstract-label {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-secondary);
+      margin: 0 0 0.4rem;
+    }
+
+    .abstract p {
+      margin: 0;
+    }
+
+    .abstract p + p {
+      margin-top: 0.75rem;
+    }
+
+    h2 {
+      font-size: 1.32rem;
+      font-weight: 650;
+      margin: 2.6rem 0 0.85rem;
+    }
+
+    h3 {
+      font-size: 1.05rem;
+      font-weight: 650;
+      margin: 1.75rem 0 0.55rem;
+    }
+
+    p {
+      margin: 0 0 1.1rem;
+    }
+
+    ul, ol {
+      margin: 0 0 1.2rem;
+      padding-left: 1.35rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    code {
+      font-size: 0.84em;
+      background: var(--surface-code);
+      padding: 0.12em 0.34em;
+      border-radius: 3px;
+    }
+
+    pre {
+      background: var(--surface-code);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 0.95rem 1.15rem;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.52;
+      margin: 1.1rem 0 1.4rem;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+    }
+
+    figure {
+      margin: 1.75rem 0 2rem;
+    }
+
+    .svg-frame {
+      background: #ffffff;
+      border: 1px solid var(--figure-frame);
+      border-radius: 8px;
+      padding: 0.5rem;
+      overflow: hidden;
+    }
+
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    figcaption {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.84rem;
+      line-height: 1.48;
+      color: var(--ink-secondary);
+      margin-top: 0.6rem;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin: 1.4rem 0 1.7rem;
+    }
+
+    .table-caption {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.84rem;
+      color: var(--ink-secondary);
+      margin-bottom: 0.45rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.88rem;
+      font-variant-numeric: tabular-nums;
+      border-top: 1.5px solid var(--rule-strong);
+      border-bottom: 1.5px solid var(--rule-strong);
+    }
+
+    thead th {
+      text-align: left;
+      font-weight: 650;
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--rule-strong);
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 0.52rem 0.7rem;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: top;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    th.num, td.num {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    hr.section-divider {
+      border: none;
+      border-top: 1px solid var(--rule);
+      margin: 2.8rem 0 2rem;
+    }
+
+    footer {
+      border-top: 1px solid var(--rule);
+      margin-top: 3rem;
+      padding-top: 1.4rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+      font-size: 0.83rem;
+      color: var(--ink-muted);
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+        color: #000000;
+        font-size: 11pt;
+      }
+      main {
+        max-width: 100%;
+        padding: 0;
+      }
+      .topbar {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="paper-header">
+      <div class="topbar">
+        <span>Technical Note · Post-Training &amp; Evaluation</span>
+        <button class="theme-btn" id="theme-toggle" type="button" aria-label="Toggle color theme">Light / Dark</button>
+      </div>
+      <h1>Which Post-Training Stage Teaches a Model Whose Instructions to Obey?</h1>
+      <p class="subtitle">Stagewise reasoning-mode source binding and confounded swap placebos across the <code>Llama-3.1-Tulu-3-8B</code> checkpoint lineage</p>
+      <div class="byline">
+        <span><strong>Rajarshi Ghoshal</strong></span>
+        <span><a href="https://github.com/rajarshighoshal/stagewise-source-binding">GitHub Repository &amp; Locked Configs</a></span>
+      </div>
+    </header>
+
+    <section class="abstract" aria-label="Abstract">
+      <div class="abstract-label">Summary</div>
+      <p>
+        Instruction-tuned language models routinely face competing directives from different channels: a user's prompt asks for a terse answer while a retrieved document or working note calls for step-by-step verification. Binding too weakly to the user channel leaves a model open to indirect prompt injection from retrieved text, whereas binding blindly can override valid task constraints in context. Comparing only a pretrained base model against a final chat checkpoint hides which post-training stage installs this source priority, and hides whether outcome-driven reinforcement learning (<code>RLVR</code>) reinforces or erodes user obedience when obeying the user hurts task accuracy.
+      </p>
+      <p>
+        Across all four released checkpoints of <code>Llama-3.1-Tulu-3-8B</code> (<code>Base → SFT → DPO → RLVR</code>) on <code>1,319</code> held-out GSM8K test problems, direct preference optimization (<code>DPO</code>) introduces nearly the entire shift toward obeying the <code>REQUEST</code> block (<code>ψ = −2.15</code>), whereas supervised fine-tuning (<code>SFT</code>) barely moves source preference (<code>ψ = −0.21</code> vs. <code>−0.02</code> at <code>Base</code>). Subsequent <code>RLVR</code> training retains strong <code>REQUEST</code> priority (<code>ψ = −1.68</code>, net Base-to-RLVR shift <code>Θ = −1.654</code>, paired-bootstrap 95% CI <code>[−1.669, −1.638]</code>) while pulling <code>+0.47</code> logits back toward reasoning on math problems where skipping chain-of-thought costs reward. We also show algebraically and empirically why standard source-swap placebos self-confound via <code>(w_request − w_notes)(d_1 − d_2)</code> whenever a checkpoint privileges one channel.
+      </p>
+    </section>
+
+    <section id="design">
+      <h2>1. Experimental Design</h2>
+      <p>
+        Each GSM8K problem is formatted in a shared plain-text prompt (no chat template at any checkpoint) containing two instruction blocks, <code>REQUEST</code> and <code>WORKING NOTES</code>, that give opposite directives on whether to reason step-by-step before answering:
+      </p>
+
+<pre><code>PROBLEM:
+&lt;question&gt;
+
+REQUEST:
+&lt;directive for this source&gt;
+
+WORKING NOTES:
+&lt;directive for this source&gt;
+
+MODE CHOICE:
+1 = begin with 1, then write a non-empty REASONING: section ...
+2 = begin with 2, then write FINAL: followed by only the answer ...
+Start your response with 1 or 2, then continue in that mode.
+CHOICE:</code></pre>
+
+      <figure>
+        <div class="svg-frame">
+          <img src="figures/experiment-design.svg" alt="Paired source-swap design contrasting request_cue and notes_cue prompts across REQUEST and WORKING NOTES channels." width="1000" height="500">
+        </div>
+        <figcaption><strong>Figure 1.</strong> Counterbalanced source-swap design. The problem text and directive wording stay fixed while source assignment swaps between <code>REQUEST</code> and <code>WORKING NOTES</code> across both block orders (<code>request_first</code>, <code>notes_first</code>).</figcaption>
+      </figure>
+
+      <p>
+        At the <code>CHOICE:</code> token position, we read the pre-generation log-odds margin <code>S = logit("1") − logit("2")</code> between step-by-step reasoning (<code>1</code>) and answering directly (<code>2</code>). Every item is scored under four counterbalanced conflict prompts: <code>request_cue</code> (reasoning in <code>REQUEST</code>, direct answer in <code>WORKING NOTES</code>) and <code>notes_cue</code> (directives swapped), crossed with both block orders (<code>request_first</code> and <code>notes_first</code>). Averaging <code>S(notes_cue) − S(request_cue)</code> across items and both orders defines the stagewise binding contrast <code>ψ(stage)</code>, where more negative values mean stronger <code>REQUEST</code> control, and <code>Θ = ψ(RLVR) − ψ(Base)</code> measures the cumulative post-training shift.
+      </p>
+    </section>
+
+    <section id="trajectory">
+      <h2>2. Stagewise Trajectory: DPO Installs Request Priority, RLVR Pulls Back</h2>
+      <p>
+        Direct preference optimization accounts for nearly all of the <code>REQUEST</code> binding observed in Tulu 3 8B, while <code>SFT</code> produces only a minor tilt and <code>RLVR</code> partially relaxes <code>DPO</code>'s obedience across the <code>1,319</code>-item GSM8K test split:
+      </p>
+
+      <figure>
+        <div class="svg-frame">
+          <img src="figures/psi-by-stage.svg" alt="Stagewise trajectory of psi across Base (-0.02), SFT (-0.21), DPO (-2.15), and RLVR (-1.68)." width="960" height="560">
+        </div>
+        <figcaption><strong>Figure 2.</strong> Stagewise source-binding contrast <code>ψ(stage)</code> averaged across <code>1,319</code> held-out GSM8K test items and both block orders. More negative values indicate stronger compliance with <code>REQUEST</code> over <code>WORKING NOTES</code>.</figcaption>
+      </figure>
+
+      <div class="table-wrap">
+        <div class="table-caption"><strong>Table 1.</strong> Confirmation-split stagewise binding contrast (<code>N = 1,319</code> GSM8K test items, averaged over <code>request_first</code> and <code>notes_first</code>).</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Checkpoint</th>
+              <th class="num"><code>ψ = S(notes) − S(request)</code></th>
+              <th class="num">Stage step <code>Δψ</code></th>
+              <th>Behavioral reading</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Base</code></td>
+              <td><code>Llama-3.1-8B</code></td>
+              <td class="num">−0.02</td>
+              <td class="num">—</td>
+              <td>Indifferent between <code>REQUEST</code> and <code>WORKING NOTES</code> headers</td>
+            </tr>
+            <tr>
+              <td><code>SFT</code></td>
+              <td><code>Tulu-3-8B-SFT</code></td>
+              <td class="num">−0.21</td>
+              <td class="num">−0.19</td>
+              <td>Small tilt toward <code>REQUEST</code></td>
+            </tr>
+            <tr>
+              <td><code>DPO</code></td>
+              <td><code>Tulu-3-8B-DPO</code></td>
+              <td class="num">−2.15</td>
+              <td class="num">−1.94</td>
+              <td>Installs dominant <code>REQUEST</code> priority</td>
+            </tr>
+            <tr>
+              <td><code>RLVR</code></td>
+              <td><code>Tulu-3-8B</code></td>
+              <td class="num">−1.68</td>
+              <td class="num">+0.47</td>
+              <td>Keeps <code>REQUEST</code> priority, pulls back toward reasoning on math</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Across the full <code>Base → RLVR</code> span, <code>Θ = −1.654</code> (95% item-paired bootstrap CI <code>[−1.669, −1.638]</code>), negative under both <code>request_first</code> and <code>notes_first</code> orders, and replicated out-of-sample on <code>352</code> fresh GSM8K training items (<code>ψ_base = −0.03</code>, <code>ψ_rlvr = −1.72</code>).
+      </p>
+      <p>
+        The non-monotone step from <code>DPO</code> (<code>−2.15</code>) to <code>RLVR</code> (<code>−1.68</code>) aligns with how each stage is trained. <code>SFT</code> fits single-turn demonstrations that rarely pit conflicting instruction channels against each other, whereas <code>DPO</code> contrasts chosen and rejected completions on instruction-following prompts, rewarding compliance with user directives. <code>RLVR</code> then optimizes exact-answer 0/1 reward on GSM8K and MATH, where obeying a <code>REQUEST</code> to skip reasoning lowers accuracy. Free-generation audits reflect the same math prior: across <code>576</code> continuations per stage (<code>64</code> test items), post-trained models still emit step-by-step reasoning before <code>FINAL:</code> in <code>569–573</code> runs even when asked for a direct answer.
+      </p>
+    </section>
+
+    <section id="placebo">
+      <h2>3. Confounded Swap Placebos vs. Fixed-Slot Paraphrase Noise</h2>
+      <p>
+        While <code>|Θ| = 1.654</code> cleared <code>20%</code> of <code>all_reason</code> vs. <code>all_direct</code> control headroom on the <code>176</code>-item validation split, it fell below the initial validation swap-placebo bar (<code>2N = 3.63</code>), which swapped two synonymous direct-answer phrasings (<code>placebo_a</code>, <code>placebo_b</code>) between <code>REQUEST</code> and <code>WORKING NOTES</code>. Decomposing a linear slot score into source weights <code>(w_request, w_notes)</code> and directive strengths <code>(d_1, d_2)</code> exposes a structural confound in source-swap placebos:
+      </p>
+
+<pre><code>S(placebo_a) − S(placebo_b) = (w_request − w_notes) · (d_1 − d_2)
+ψ                          = (w_request − w_notes) · (d_reason − d_direct)</code></pre>
+
+      <p>
+        Because swapping two slightly unequal phrasings across channels multiplies their wording gap <code>(d_1 − d_2)</code> by the exact same <code>(w_request − w_notes)</code> factor that defines <code>ψ</code>, any checkpoint that strongly privileges <code>REQUEST</code> (<code>w_request &gt;&gt; w_notes</code>) automatically inflates its own swap-placebo. Consistent with that factorization, the largest validation placebo cell (<code>RLVR × notes_first</code>, <code>−1.814</code>) is the exact stage-by-order cell carrying the largest primary conflict effect.
+      </p>
+      <p>
+        To measure prompt-wording sensitivity without the <code>(w_request − w_notes)</code> source-swap factor, we ran a fixed-slot paraphrase control on <code>352</code> untouched GSM8K training items (<code>Base</code> and <code>RLVR</code>), holding source assignment fixed and varying only the reasoning phrasing (<em>"Solve the problem with explicit step-by-step reasoning before the final answer"</em> vs. <em>"Think the problem through one step at a time before giving your final answer"</em>):
+      </p>
+
+      <div class="table-wrap">
+        <div class="table-caption"><strong>Table 2.</strong> Fixed-slot paraphrase recalibration on <code>352</code> fresh GSM8K training items (<code>Base</code> and <code>RLVR</code>).</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Noise aggregation across <code>(slot, order)</code> cells</th>
+              <th class="num">Paraphrase drift <code>N</code></th>
+              <th class="num"><code>2N</code> threshold</th>
+              <th>Comparison to <code>|Θ| = 1.654</code></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Median cell drift (<code>N_median</code>)</td>
+              <td class="num">0.43</td>
+              <td class="num">0.85</td>
+              <td><code>|Θ| &gt; 2N_median</code></td>
+            </tr>
+            <tr>
+              <td>Mean cell drift (<code>N_mean</code>)</td>
+              <td class="num">0.55</td>
+              <td class="num">1.09</td>
+              <td><code>|Θ| &gt; 2N_mean</code></td>
+            </tr>
+            <tr>
+              <td>Worst single cell (<code>N_max</code>, <code>RLVR × REQUEST</code>)</td>
+              <td class="num">1.53</td>
+              <td class="num">3.06</td>
+              <td><code>|Θ| &lt; 2N_max</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Holding source assignment fixed cuts average placebo drift by more than two-thirds (<code>2N_mean = 1.09</code> vs. <code>3.63</code>), yet a single cell (<code>RLVR × REQUEST</code>) still shifts by <code>1.53</code> logits between the two synonymous phrasings. The directional <code>Base → RLVR</code> shift is therefore stable across item splits and block orders, while its magnitude (<code>1.65</code> logits) exceeds typical paraphrase drift (<code>0.43–0.55</code> logits) without exceeding <code>2×</code> the worst single-slot wording swing in <code>RLVR</code>.
+      </p>
+    </section>
+
+    <section id="scope">
+      <h2>4. Scope and Diagnostics</h2>
+      <ul>
+        <li><strong>Single lineage and math-heavy benchmark:</strong> All measurements come from <code>Llama-3.1-Tulu-3-8B</code> on GSM8K. Repeating the <code>DPO → RLVR</code> comparison on a second open lineage (such as <code>OLMo-2</code>) and on tasks where direct answers incur no accuracy cost would test whether <code>RLVR</code> relaxes <code>REQUEST</code> binding globally or only when user instructions conflict with outcome reward.</li>
+        <li><strong>Initial mode commitment vs. full generation:</strong> At the scored token, <code>explicit_12</code> separates <code>all_reason</code> from <code>all_direct</code> controls (<code>AUC ≥ 0.80</code> in all post-trained cells; <code>0.787</code> worst-order at <code>Base</code>), and among classifiable post-trained continuations the leading <code>1</code>/<code>2</code> token matches downstream format in at least <code>90%</code> of cases (<code>Base</code> shows <code>0.62–0.89</code> format compliance and <code>4–24%</code> repetition loops; <code>SFT</code> slightly exceeds <code>1%</code> loops in confirmation generation). Because GSM8K strongly pulls free continuations back into reasoning, <code>S</code> measures initial mode commitment rather than sustained suppression of chain-of-thought.</li>
+        <li><strong>Block-order asymmetry:</strong> <code>Θ</code> is negative under both <code>request_first</code> and <code>notes_first</code> orders, with a larger shift under <code>notes_first</code> where <code>REQUEST</code> sits immediately above <code>MODE CHOICE</code>.</li>
+      </ul>
+    </section>
+
+    <hr class="section-divider">
+
+    <section id="appendix">
+      <h2>Appendix: Checkpoints, Split Locks, and Retired Readout Iterations</h2>
+
+      <h3>A.1 Checkpoints and inference configuration</h3>
+      <p>
+        All four checkpoints share the Llama 3.1 tokenizer vocabulary up to Tulu's added chat template and unused <code>&lt;pad&gt;</code> entry, and all experiments evaluate a byte-identical plain-text prompt without chat templates:
+        <code>meta-llama/Llama-3.1-8B</code> (<code>Base</code>),
+        <code>allenai/Llama-3.1-Tulu-3-8B-SFT</code> (<code>SFT</code>),
+        <code>allenai/Llama-3.1-Tulu-3-8B-DPO</code> (<code>DPO</code>), and
+        <code>allenai/Llama-3.1-Tulu-3-8B</code> (<code>RLVR</code>).
+        Every checkpoint runs in <code>bfloat16</code> on a single GPU with greedy decoding, explicit <code>&lt;|end_of_text|&gt;</code> EOS and batch-padding IDs, and <code>use_cache=True</code> during generation (overriding the released Tulu RLVR config default of <code>use_cache=False</code> so KV-cache behavior stays identical across stages). Standalone next-token scoring passes discard <code>past_key_values</code>.
+      </p>
+
+      <h3>A.2 Disjoint salted-hash GSM8K splits</h3>
+      <p>
+        Items are partitioned deterministically via salted SHA-256 ranking (<code>seed = 20260821</code>) in <code>configs/frame_stage_binding_repair_v2.locked.json</code> and <code>configs/frame_stage_binding_recalibration.locked.json</code>:
+      </p>
+      <ul>
+        <li><strong>Pilot (<code>24</code> train items):</strong> Compares three single-token mode-choice interfaces (<code>explicit_ra</code>, <code>explicit_12</code>, <code>response_mode_field</code>) across all four stages using choice-token probability mass and <code>all_reason</code> vs. <code>all_direct</code> control separation, blind to <code>request_cue</code> vs. <code>notes_cue</code> source effects. Selected interface: <code>explicit_12</code>.</li>
+        <li><strong>Validation (<code>176</code> train items):</strong> Evaluates <code>explicit_12</code> on instrument checks (<code>48</code>-item generation subset, <code>512</code>-token cap) and estimates control headroom <code>H</code> and the initial source-swap placebo constant <code>N</code>.</li>
+        <li><strong>Confirmation (<code>1,319</code> test items):</strong> Evaluates <code>request_cue</code> and <code>notes_cue</code> under both block orders on the complete GSM8K test split, with a <code>64</code>-item generation audit subset and an independent recomputation check (<code>frame_stage_binding/repair_recompute.py</code>).</li>
+        <li><strong>Paraphrase recalibration (<code>352</code> train items):</strong> Draws <code>352</code> untouched GSM8K training items outside the <code>200</code> pilot+validation items (<code>Base</code> and <code>RLVR</code>, scoring only) to measure fixed-slot directive wording sensitivity without swapping sources.</li>
+      </ul>
+
+      <h3>A.3 Retired readout iterations</h3>
+      <p>
+        Two earlier prompt/parser pairs failed validation checks on the <code>24</code>-item pilot before <code>explicit_12</code> was locked:
+      </p>
+      <ol>
+        <li><strong>Bare <code>R</code>/<code>A</code> sentinel:</strong> Prompting Base <code>Llama-3.1-8B</code> to emit a bare <code>R</code> or <code>A</code> produced low candidate-token mass and <code>4–24%</code> terminal repetition loops under <code>1,024</code>-token continuations, while one <code>DPO</code> cell frequently jumped straight to reasoning text without emitting the leading letter.</li>
+        <li><strong>Repair v1 (<em>"Write exactly R or A as the next token"</em> + line-anchored <code>FINAL:</code> parser):</strong> Two failure modes appeared in pilot generations. First, <code>SFT</code> obeyed <em>"as the next token"</em> literally on <code>123</code> rows by emitting the choice token followed immediately by <code>&lt;|end_of_text|&gt;</code>. Second, requiring <code>FINAL:</code> at line start after an explicit <code>REASONING:</code> header misclassified <code>165</code> of <code>267</code> <code>RLVR</code> responses that reasoned normally and placed <code>FINAL:</code> mid-line. Repair v2 (<code>explicit_12</code>) replaced the stop-inducing wording with <em>"Start your response with 1 or 2, then continue in that mode"</em> and parsed semantic mode from the last <code>FINAL:</code> marker anywhere in the completion, raising post-trained classifiability to <code>0.95–1.00</code>.</li>
+      </ol>
+
+      <h3>Citation</h3>
+<pre><code>@misc{ghoshal2026stagewise,
+  author       = {Rajarshi Ghoshal},
+  title        = {Which Post-Training Stage Teaches a Model Whose Instructions to Obey?},
+  year         = {2026},
+  howpublished = {\url{https://rajarshighoshal.github.io/stagewise-source-binding/}},
+  note         = {Code and locked split configurations at \url{https://github.com/rajarshighoshal/stagewise-source-binding}}
+}</code></pre>
+    </section>
+
+    <footer>
+      Code, unit tests, and SHA-256 locked item splits: <a href="https://github.com/rajarshighoshal/stagewise-source-binding">github.com/rajarshighoshal/stagewise-source-binding</a>.
+    </footer>
+  </main>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById("theme-toggle");
+      var saved = null;
+      try { saved = localStorage.getItem("theme"); } catch (e) {}
+      if (saved === "light" || saved === "dark") {
+        root.setAttribute("data-theme", saved);
+      }
+      btn.addEventListener("click", function () {
+        var current = root.getAttribute("data-theme");
+        var isDark = current === "dark" || (!current && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var next = isDark ? "light" : "dark";
+        root.setAttribute("data-theme", next);
+        try { localStorage.setItem("theme", next); } catch (e) {}
+      });
+    })();
+  </script>
+</body>
+</html>

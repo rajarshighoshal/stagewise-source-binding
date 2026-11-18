@@ -14,6 +14,7 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://rajarshighoshal.github.io/stagewise-source-binding/"
 Repository = "https://github.com/rajarshighoshal/stagewise-source-binding"
 
 [project.optional-dependencies]
